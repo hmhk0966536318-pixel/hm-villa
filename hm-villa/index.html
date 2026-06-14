@@ -615,44 +615,64 @@ function normalizeDate(value) {
 }
 
 async function fetchAvail(ds) {
-  const dsYMD = normalizeDate(ds); // e.g. "2026/06/13"
+  const dsYMD = normalizeDate(ds);
   try {
     const [bundleData, singleData] = await Promise.all([
       loadSheet('包棟空房'),
       loadSheet('單間空房'),
     ]);
 
-    /* ── 包棟 ── */
-    let bundleStatus = 'available';
+    /* ── 單間各房狀態（先算，不受包棟影響）── */
+    const AVAILABLE_VALS = ['可訂', '可預訂'];
+    const rooms = { '201':'av','202':'av','203':'av','301':'av','302':'av' };
+    let singleFound = false;
+    const singleRow = singleData.find(r => normalizeDate(r['日期']) === dsYMD);
+    if (singleRow) {
+      singleFound = true;
+      ['201','202','203','301','302'].forEach(id => {
+        const val = (singleRow[id] || '').trim();
+        if (!AVAILABLE_VALS.includes(val)) rooms[id] = 'full';
+      });
+    }
+
+    /* ── 包棟分頁狀態 ── */
+    let bundleSheetStatus = 'available';
     let bundleFound = false;
     const bundleRow = bundleData.find(r => normalizeDate(r['日期']) === dsYMD);
     if (bundleRow) {
       bundleFound = true;
       const st = (bundleRow['狀態'] || '').trim();
-      if (st === '已訂')         bundleStatus = 'sold';
-      else if (st === '僅接包棟') bundleStatus = 'bundleOnly';
-      else                        bundleStatus = 'available'; // 可訂 / 可預訂
+      if (st === '已訂')          bundleSheetStatus = 'sold';
+      else if (st === '僅接包棟') bundleSheetStatus = 'bundleOnly';
+      else                         bundleSheetStatus = 'available';
     }
 
-    /* ── 單間 ── */
-    let singleFound = false;
-    const rooms = { '201':'av','202':'av','203':'av','301':'av','302':'av' };
-    if (bundleStatus === 'bundleOnly' || bundleStatus === 'sold') {
-      Object.keys(rooms).forEach(id => rooms[id] = 'full');
-      singleFound = true; // 包棟狀態已決定，不需單間資料
-    } else {
-      const singleRow = singleData.find(r => normalizeDate(r['日期']) === dsYMD);
-      if (singleRow) {
-        singleFound = true;
-        ['201','202','203','301','302'].forEach(id => {
-          const val = (singleRow[id] || '').trim();
-          if (val !== '可訂') rooms[id] = 'full';
-        });
-      }
-    }
-
-    // 兩張表都查無此日期
     if (!bundleFound && !singleFound) return 'nodata';
+
+    /* ── 包棟最終狀態 ──────────────────────────────
+       優先級：
+       1. 包棟分頁「已訂」           → sold
+       2. 單間任一房非可訂           → singleBooked
+       3. 包棟分頁「僅接包棟」       → bundleOnly（單間全關，但包棟可）
+       4. 以上皆否                   → available
+    ─────────────────────────────────────────────── */
+    const allRoomsAv = Object.values(rooms).every(v => v === 'av');
+    let bundleStatus;
+
+    if (bundleSheetStatus === 'sold') {
+      bundleStatus = 'sold';
+    } else if (!allRoomsAv) {
+      bundleStatus = 'singleBooked';
+    } else if (bundleSheetStatus === 'bundleOnly') {
+      bundleStatus = 'bundleOnly';
+    } else {
+      bundleStatus = 'available';
+    }
+
+    /* 單間顯示：僅接包棟或已訂時單間全關 */
+    if (bundleSheetStatus === 'bundleOnly' || bundleSheetStatus === 'sold') {
+      Object.keys(rooms).forEach(id => rooms[id] = 'full');
+    }
 
     return { bundleStatus, rooms };
   } catch(e) {
@@ -764,9 +784,15 @@ async function searchBundle(){
   const bundleOk = bundleStatus === 'available';
 
   let html=`<div class="results-hdr">${dateLabel}（${dl}）包棟查詢結果</div>`;
-  html+=`<div class="mascot-msg ${bundleOk?'mm-ok':'mm-no'}">${
-    bundleOk?'🎉 渼寶說：太好了，這天可以包棟！':'🌸 渼寶說：這天無法包棟，可以換個日期試試。'
-  }</div>`;
+
+  // 渼寶訊息
+  if (bundleOk) {
+    html+=`<div class="mascot-msg mm-ok">🎉 渼寶說：太好了，這天可以包棟！</div>`;
+  } else if (bundleStatus === 'singleBooked') {
+    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：這天已有單間訂房，無法包棟，請加入 LINE 詢問。</div>`;
+  } else {
+    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：這天無法包棟，可以換個日期試試。</div>`;
+  }
 
   if(bundleOk){
     const msg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
@@ -787,8 +813,12 @@ async function searchBundle(){
       </div>
     </div>`;
   } else {
-    // 區分「僅接包棟已售」vs「已訂」的顯示文字
-    const noLabel = bundleStatus==='sold' ? '🌸 此日包棟已售出' : '🌸 此日無法包棟';
+    const noLabel = bundleStatus==='sold'
+      ? '🌸 此日包棟已售出'
+      : bundleStatus==='singleBooked'
+        ? '🌸 此日已有單間訂房，無法包棟'
+        : '🌸 此日無法包棟';
+    const lineMsg = encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
     html+=`<div class="bres bres-no">
       <div class="bres-top">
         <div>
@@ -800,6 +830,11 @@ async function searchBundle(){
           <div class="bres-day">${dl}・每晚</div>
         </div>
       </div>
+      ${bundleStatus==='singleBooked' ? `
+      <div class="bres-bot">
+        <div class="bres-info" style="color:var(--pk-deep);">此日已有單間訂房，無法整棟預訂</div>
+        <button class="btn-ask-or" onclick="openLine('${lineMsg}')">加入 LINE 詢問</button>
+      </div>` : ''}
     </div>`;
   }
 
