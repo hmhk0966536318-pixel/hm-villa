@@ -741,11 +741,11 @@ async function searchSingle(){
   const t=dayType(dv), dl=dayLabel(t), dateLabel=fmtDate(dv);
   const rv=document.getElementById('room-type').value;
   const list=rv==='all'?ROOMS_DEF:ROOMS_DEF.filter(r=>r.id===rv);
-  const hasAny=list.some(r=>rooms[r.id]==='av');
+  const hasAny = list.some(r => rooms[r.id] === 'av'); // 只有 av 才算有空房
 
   let html=`<div class="results-hdr">${dateLabel}（${dl}）查詢結果</div>`;
   html+=`<div class="mascot-msg ${hasAny?'mm-ok':'mm-no'}">${
-    hasAny?'🎉 渼寶說：太好了，這天還有空房！':'🌸 渼寶說：這天已經客滿，可以換個日期看看。'
+    hasAny?'🎉 渼寶說：太好了，這天還有空房！':'🌸 渼寶說：這天單間已無空房，可以換個日期或詢問包棟。'
   }</div>`;
 
   list.forEach(r=>{
@@ -765,7 +765,7 @@ async function searchSingle(){
       html+=`<div class="room-card rc-full">
         <div class="rc-info">
           <div class="rc-name">${r.name}</div>
-          <span class="rc-badge badge-full">🏡 此日期僅開放包棟</span>
+          <span class="rc-badge badge-full">🏡 此日期僅開放包棟，不提供單間訂房</span>
           <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
         </div>
       </div>`;
