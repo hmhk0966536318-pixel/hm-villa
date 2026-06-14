@@ -470,7 +470,7 @@ input[type="date"]:focus,select:focus{
 <!-- ════ HERO ════ -->
 <div class="hero">
   <div class="hero-deco-bl"></div>
-  <img class="hero-meibao" src="./meibao.png" alt="渼寶">
+  <img class="hero-meibao" src="./meibao.png" alt="渼寶" onerror="this.onerror=null;this.src='./meibao.png.png';">
   <div class="hero-body">
     <div class="hero-eyebrow">HM VILLA</div>
     <h1>禾渼會館</h1>
@@ -583,7 +583,6 @@ input[type="date"]:focus,select:focus{
 <script>
 /* ══════════════════════════════════════════════
    透過 Netlify Function 中繼抓 Apps Script 資料
-   前端不直接打 Google，避免 CORS 問題
 ══════════════════════════════════════════════ */
 const PROXY = '/.netlify/functions/availability';
 
@@ -593,90 +592,148 @@ async function loadSheet(sheetName) {
   return res.json();
 }
 
-/*
-  normalizeDate：統一轉成 yyyy/mm/dd
-  ─ ISO 字串（"2026-06-19T16:00:00.000Z"）→ 直接截字串前10碼再轉，
-    避免 new Date() 時區偏移造成日期跑掉
-  ─ 一般字串（"2026/6/13"、"2026-06-13"）→ 補零
-  ─ input[type=date] 值（"2026-06-13"）→ 同上
-*/
+/* 統一轉成 yyyy/mm/dd，處理 ISO 時區問題 */
 function normalizeDate(value) {
   if (!value) return '';
   const s = String(value).trim();
-  // ISO 格式：直接取前 10 碼 "2026-06-19" 再轉
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
   if (iso) return iso[1] + '/' + iso[2] + '/' + iso[3];
-  // 一般 yyyy-mm-dd 或 yyyy/mm/dd（含補零）
   const parts = s.replace(/-/g, '/').split('/');
-  if (parts.length === 3) {
+  if (parts.length === 3)
     return parts[0] + '/' + parts[1].padStart(2,'0') + '/' + parts[2].padStart(2,'0');
-  }
   return s;
 }
 
+function findRow(data, dsYMD) {
+  return data.find(r => normalizeDate(r['日期']) === dsYMD) || null;
+}
+
+/* ══════════════════════════════════════════════
+   fetchAvail：同時讀三張表，回傳統一結果物件
+   回傳 null = 網路錯誤
+   回傳 'nodata' = 三張表都找不到此日期
+   回傳 { ctrlMode, bundleStatus, rooms }
+     ctrlMode    : 正常 / 僅接包棟 / 包棟已訂 / 不可訂
+     bundleStatus: available / sold / blocked / unavailable
+     rooms       : { 201: 'av'|'full'|'bundleOnly', ... }
+══════════════════════════════════════════════ */
+function cleanText(value) {
+  return String(value || '')
+    .replace(/\u00A0/g, '')
+    .replace(/[\s　]/g, '')
+    .trim();
+}
+
+function isAvailableText(value) {
+  const v = cleanText(value);
+  return v === '可訂' || v === '可預訂' || v === '開放';
+}
+
+function isBundleOnlyText(value) {
+  const v = cleanText(value);
+  return v === '僅接包棟' || v === '只接包棟' || v === '僅可包棟';
+}
+
+function isSoldText(value) {
+  const v = cleanText(value);
+  return v === '已訂' || v === '已客滿' || v === '客滿' || v === '滿房';
+}
+
+function isClosedText(value) {
+  const v = cleanText(value);
+  return v === '不可訂' || v === '不開放' || v === '暫不開放' || v === '維修';
+}
+
+/* ══════════════════════════════════════════════
+   fetchAvail：同時讀三張表，回傳統一結果物件
+   重點：只有「可訂 / 可預訂 / 開放」才算可賣
+   其他包含「不可訂、已訂、空白、已客滿」一律關閉
+══════════════════════════════════════════════ */
 async function fetchAvail(ds) {
   const dsYMD = normalizeDate(ds);
   try {
-    const [bundleData, singleData] = await Promise.all([
+    const [ctrlData, bundleData, singleData] = await Promise.all([
+      loadSheet('房況控制'),
       loadSheet('包棟空房'),
       loadSheet('單間空房'),
     ]);
 
-    /* ── 包棟分頁狀態 ── */
-    let bundleSheetStatus = 'available';
-    let bundleFound = false;
-    const bundleRow = bundleData.find(r => normalizeDate(r['日期']) === dsYMD);
-    if (bundleRow) {
-      bundleFound = true;
-      const st = (bundleRow['狀態'] || '').trim();
-      if (st === '已訂')         bundleSheetStatus = 'sold';
-      else if (st === '僅接包棟') bundleSheetStatus = 'bundleOnly';
-      else                        bundleSheetStatus = 'available';
-    }
+    const ctrlRow = findRow(ctrlData, dsYMD);
+    const bundleRow = findRow(bundleData, dsYMD);
+    const singleRow = findRow(singleData, dsYMD);
 
-    /* ── 單間各房狀態 ── */
-    let singleFound = false;
-    const rooms = { '201':'av','202':'av','203':'av','301':'av','302':'av' };
-    const singleRow = singleData.find(r => normalizeDate(r['日期']) === dsYMD);
+    if (!ctrlRow && !bundleRow && !singleRow) return 'nodata';
+
+    const ctrlModeRaw = ctrlRow ? (ctrlRow['模式'] || '') : '正常';
+    const bundleStatusRaw = bundleRow ? (bundleRow['狀態'] || '') : '';
+    const ctrlMode = cleanText(ctrlModeRaw) || '正常';
+    const bundleStatusText = cleanText(bundleStatusRaw);
+
+    console.log('[查詢日期]', dsYMD);
+    console.log('[房況控制]', ctrlModeRaw, '=>', ctrlMode);
+    console.log('[包棟狀態]', bundleStatusRaw, '=>', bundleStatusText);
+    console.log('[單間資料]', singleRow);
+
+    const rooms = { '201':'full','202':'full','203':'full','301':'full','302':'full' };
+
+    // 先讀單間表。只有「可訂 / 可預訂 / 開放」才開，其餘全部關。
     if (singleRow) {
-      singleFound = true;
       ['201','202','203','301','302'].forEach(id => {
-        const val = (singleRow[id] || '').trim();
-        // 只有明確「可訂」或「可預訂」才算空房，其他一律 full
-        if (val !== '可訂' && val !== '可預訂') rooms[id] = 'full';
+        const raw = singleRow[id];
+        if (isAvailableText(raw)) rooms[id] = 'av';
+        else if (isBundleOnlyText(raw)) rooms[id] = 'bundleOnly';
+        else rooms[id] = 'full'; // 不可訂 / 已訂 / 空白 / 其他文字
+        console.log('[單間]', id, raw, '=>', rooms[id]);
       });
     }
 
-    // 兩張表都查無此日期
-    if (!bundleFound && !singleFound) return 'nodata';
+    let singleMode = 'normal';
 
-    /* ── 計算包棟最終狀態 ──
-       條件：包棟分頁狀態非「已訂」，且單間 5 間全部為 av
-       若單間有任一 full → 顯示「已有單間訂房，無法包棟」
-       若包棟分頁為「已訂」→ 顯示「包棟已售出」                */
-    const allRoomsAv = Object.values(rooms).every(v => v === 'av');
-    let bundleStatus;
-    if (bundleSheetStatus === 'sold') {
-      bundleStatus = 'sold';
-    } else if (!allRoomsAv) {
-      bundleStatus = 'singleBooked'; // 有單間已訂，無法包棟
-    } else {
-      // 包棟分頁 available 或 bundleOnly，且單間全空 → 可包棟
+    // 第一優先：房況控制
+    if (isBundleOnlyText(ctrlMode)) singleMode = 'bundleOnly';
+    else if (cleanText(ctrlMode) === '包棟已訂' || isSoldText(ctrlMode)) singleMode = 'bundleSold';
+    else if (isClosedText(ctrlMode)) singleMode = 'closed';
+    else {
+      // 第二優先：包棟空房狀態
+      if (isBundleOnlyText(bundleStatusText)) singleMode = 'bundleOnly';
+      else if (isSoldText(bundleStatusText)) singleMode = 'bundleSold';
+      else if (isClosedText(bundleStatusText)) singleMode = 'closed';
+      else singleMode = 'normal';
+    }
+
+    // 非正常模式，單間全部關閉
+    if (singleMode !== 'normal') {
+      const mark = singleMode === 'bundleOnly' ? 'bundleOnly' : 'full';
+      Object.keys(rooms).forEach(id => rooms[id] = mark);
+    }
+
+    let bundleStatus = 'unavailable';
+
+    // 包棟判斷
+    if (isBundleOnlyText(ctrlMode) || isBundleOnlyText(bundleStatusText)) {
       bundleStatus = 'available';
+    } else if (cleanText(ctrlMode) === '包棟已訂' || isSoldText(ctrlMode) || isSoldText(bundleStatusText)) {
+      bundleStatus = 'sold';
+    } else if (isClosedText(ctrlMode) || isClosedText(bundleStatusText)) {
+      bundleStatus = 'unavailable';
+    } else {
+      // 正常模式：單間只要任一房不是可訂，就不能包棟
+      const anyRoomNotAvailable = Object.values(rooms).some(v => v !== 'av');
+      if (anyRoomNotAvailable) bundleStatus = 'singleBooked';
+      else if (isAvailableText(bundleStatusText) || bundleStatusText === '') bundleStatus = 'available';
+      else bundleStatus = 'unavailable';
     }
 
-    // 單間顯示：若包棟狀態為 bundleOnly，單間全部 full
-    if (bundleSheetStatus === 'bundleOnly' || bundleSheetStatus === 'sold') {
-      Object.keys(rooms).forEach(id => rooms[id] = 'full');
-    }
+    console.log('[結果] singleMode:', singleMode, 'rooms:', rooms, 'bundleStatus:', bundleStatus);
+    return { ctrlMode, singleMode, bundleStatus, rooms };
 
-    return { bundleStatus, rooms };
   } catch(e) {
     console.error('fetchAvail:', e);
     return null;
   }
 }
 
+/* ══ 房間與價格定義 ══ */
 const ROOMS_DEF = [
   { id:'201', name:'201 四人房',    wd:3500, hd:4500 },
   { id:'202', name:'202 二大一小房', wd:2500, hd:3500 },
@@ -688,9 +745,7 @@ const BUNDLE_P = { wd:23000, pk:25000, hd:30000 };
 
 function dayType(ds){
   const d = new Date(ds+'T00:00:00').getDay();
-  if(d===6) return 'hd';
-  if(d===5) return 'pk';
-  return 'wd';
+  if(d===6) return 'hd'; if(d===5) return 'pk'; return 'wd';
 }
 function dayLabel(t){ return {wd:'平日',pk:'旺日',hd:'假日'}[t]; }
 function fmtDate(ds){
@@ -699,13 +754,13 @@ function fmtDate(ds){
 }
 
 function updateBadge(which){
-  const val = document.getElementById(which+'-date').value;
-  const el  = document.getElementById(which+'-badge');
-  if(!val){ el.className='day-badge db-no'; el.textContent='請選擇日期'; return; }
-  const t = dayType(val);
-  if(t==='hd'){ el.className='day-badge db-hd'; el.textContent='🟠 假日（週六）'; }
-  else if(t==='pk'){ el.className='day-badge db-pk'; el.textContent='💙 旺日（週五）'; }
-  else { el.className='day-badge db-wd'; el.textContent='🌿 平日（週日～週四）'; }
+  const val=document.getElementById(which+'-date').value;
+  const el=document.getElementById(which+'-badge');
+  if(!val){el.className='day-badge db-no';el.textContent='請選擇日期';return;}
+  const t=dayType(val);
+  if(t==='hd'){el.className='day-badge db-hd';el.textContent='🟠 假日（週六）';}
+  else if(t==='pk'){el.className='day-badge db-pk';el.textContent='💙 旺日（週五）';}
+  else{el.className='day-badge db-wd';el.textContent='🌿 平日（週日～週四）';}
 }
 
 function switchTab(tab){
@@ -717,118 +772,145 @@ function switchTab(tab){
   document.getElementById('section-'+tab).classList.add('active');
 }
 
+/* ══════════════════════════════════════════════
+   searchSingle
+══════════════════════════════════════════════ */
 async function searchSingle(){
   const dv=document.getElementById('single-date').value;
   const area=document.getElementById('single-results');
-  if(!dv){ area.innerHTML=warn(); return; }
+  if(!dv){area.innerHTML=warn();return;}
   area.innerHTML=loading();
 
-  const data = await fetchAvail(dv);
-  if(!data){ area.innerHTML=errMsg(); return; }
-  if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
-  const { rooms } = data;
+  const data=await fetchAvail(dv);
+  if(!data){area.innerHTML=errMsg();return;}
+  if(data==='nodata'){area.innerHTML=noDataMsg();return;}
+
+  const {singleMode, rooms}=data;
   const t=dayType(dv), dl=dayLabel(t), dateLabel=fmtDate(dv);
   const rv=document.getElementById('room-type').value;
   const list=rv==='all'?ROOMS_DEF:ROOMS_DEF.filter(r=>r.id===rv);
-  const hasAny=list.some(r=>rooms[r.id]==='av');
 
-  let html=`<div class="results-hdr">${dateLabel}（${dl}）查詢結果</div>`;
-  html+=`<div class="mascot-msg ${hasAny?'mm-ok':'mm-no'}">${
-    hasAny?'🎉 渼寶說：太好了，這天還有空房！':'🌸 渼寶說：這天已經客滿，可以換個日期看看。'
-  }</div>`;
+  let html=`<div class="results-hdr">${dateLabel}（${dl}）單間查詢結果</div>`;
 
-  list.forEach(r=>{
-    const price=(t!=='wd')?r.hd:r.wd;
-    const st=rooms[r.id];
-    if(st==='av'){
-      const msg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】【'+r.name+'】是否還有空房？');
-      html+=`<div class="room-card rc-av">
-        <div class="rc-info">
+  /* 非正常模式：整體提示 + 全房顯示 */
+  if (singleMode === 'bundleOnly') {
+    html+=`<div class="mascot-msg mm-no">🏡 渼寶說：此日期僅開放包棟，不提供單間訂房。</div>`;
+    list.forEach(r=>{
+      const price=(t!=='wd')?r.hd:r.wd;
+      html+=`<div class="room-card rc-full"><div class="rc-info">
+        <div class="rc-name">${r.name}</div>
+        <span class="rc-badge badge-full">🏡 此日期僅開放包棟，不提供單間訂房</span>
+        <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
+      </div></div>`;
+    });
+  } else if (singleMode === 'bundleSold') {
+    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：此日期包棟已訂，單間不開放。</div>`;
+    list.forEach(r=>{
+      const price=(t!=='wd')?r.hd:r.wd;
+      html+=`<div class="room-card rc-full"><div class="rc-info">
+        <div class="rc-name">${r.name}</div>
+        <span class="rc-badge badge-full">🌸 此日期包棟已訂，單間不開放</span>
+        <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
+      </div></div>`;
+    });
+  } else if (singleMode === 'closed') {
+    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：此日期暫不開放訂房，請加入 LINE 詢問。</div>`;
+    list.forEach(r=>{
+      const price=(t!=='wd')?r.hd:r.wd;
+      html+=`<div class="room-card rc-full"><div class="rc-info">
+        <div class="rc-name">${r.name}</div>
+        <span class="rc-badge badge-full">🚫 此日期暫不開放訂房</span>
+        <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
+      </div></div>`;
+    });
+  } else {
+    /* 正常模式：依各房狀態顯示 */
+    const hasAny=list.some(r=>rooms[r.id]==='av');
+    html+=`<div class="mascot-msg ${hasAny?'mm-ok':'mm-no'}">${
+      hasAny?'🎉 渼寶說：太好了，這天還有空房！':'🌸 渼寶說：這天單間已無空房，可換個日期或詢問包棟。'
+    }</div>`;
+    list.forEach(r=>{
+      const price=(t!=='wd')?r.hd:r.wd;
+      const st=rooms[r.id];
+      if(st==='av'){
+        const msg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】【'+r.name+'】是否還有空房？');
+        html+=`<div class="room-card rc-av"><div class="rc-info">
           <div class="rc-name">${r.name}</div>
           <span class="rc-badge badge-av">✅ 尚有空房・剩餘 1 間</span>
           <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
-        </div>
-        <button class="btn-ask" onclick="openLine('${msg}')">我要詢問</button>
-      </div>`;
-    } else {
-      html+=`<div class="room-card rc-full">
-        <div class="rc-info">
+        </div><button class="btn-ask" onclick="openLine('${msg}')">我要詢問</button></div>`;
+      } else if(st==='bundleOnly'){
+        html+=`<div class="room-card rc-full"><div class="rc-info">
+          <div class="rc-name">${r.name}</div>
+          <span class="rc-badge badge-full">🏡 此日期僅開放包棟，不提供單間訂房</span>
+          <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
+        </div></div>`;
+      } else {
+        html+=`<div class="room-card rc-full"><div class="rc-info">
           <div class="rc-name">${r.name}</div>
           <span class="rc-badge badge-full">🌸 已客滿</span>
           <div class="rc-price">${dl} ${price.toLocaleString()} 元／晚</div>
-        </div>
-      </div>`;
-    }
-  });
+        </div></div>`;
+      }
+    });
+  }
 
   area.innerHTML=html;
   area.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
+/* ══════════════════════════════════════════════
+   searchBundle
+══════════════════════════════════════════════ */
 async function searchBundle(){
   const dv=document.getElementById('bundle-date').value;
   const area=document.getElementById('bundle-results');
-  if(!dv){ area.innerHTML=warn(); return; }
+  if(!dv){area.innerHTML=warn();return;}
   area.innerHTML=loading();
 
-  const data = await fetchAvail(dv);
-  if(!data){ area.innerHTML=errMsg(); return; }
-  if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
-  const { bundleStatus } = data;
+  const data=await fetchAvail(dv);
+  if(!data){area.innerHTML=errMsg();return;}
+  if(data==='nodata'){area.innerHTML=noDataMsg();return;}
+
+  const {bundleStatus}=data;
   const t=dayType(dv), dl=dayLabel(t), dateLabel=fmtDate(dv);
   const price=BUNDLE_P[t];
-  const bundleOk = bundleStatus === 'available';
+  const lineMsg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
 
   let html=`<div class="results-hdr">${dateLabel}（${dl}）包棟查詢結果</div>`;
 
-  // 渼寶訊息
-  if (bundleOk) {
+  if(bundleStatus==='available'){
     html+=`<div class="mascot-msg mm-ok">🎉 渼寶說：太好了，這天可以包棟！</div>`;
-  } else if (bundleStatus === 'singleBooked') {
-    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：這天已有單間訂房，無法包棟，請加入 LINE 詢問。</div>`;
-  } else {
-    html+=`<div class="mascot-msg mm-no">🌸 渼寶說：這天無法包棟，可以換個日期試試。</div>`;
-  }
-
-  if(bundleOk){
-    const msg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
     html+=`<div class="bres bres-ok">
       <div class="bres-top">
-        <div>
-          <div class="bres-name">🏡 禾渼會館包棟</div>
-          <span class="bres-badge bbadge-ok">🎉 可包棟</span>
-        </div>
-        <div>
-          <div class="bres-price">${price.toLocaleString()}<span class="bres-unit"> 元</span></div>
-          <div class="bres-day">${dl}・每晚</div>
-        </div>
+        <div><div class="bres-name">🏡 禾渼會館包棟</div>
+        <span class="bres-badge bbadge-ok">🎉 可包棟</span></div>
+        <div><div class="bres-price">${price.toLocaleString()}<span class="bres-unit"> 元</span></div>
+        <div class="bres-day">${dl}・每晚</div></div>
       </div>
       <div class="bres-bot">
         <div class="bres-info">🏠 5 間房全包・含早餐<br>📞 <a href="tel:0966536318" style="color:var(--or-text);font-weight:700;">0966-536-318</a></div>
-        <button class="btn-ask-or" onclick="openLine('${msg}')">詢問包棟</button>
+        <button class="btn-ask-or" onclick="openLine('${lineMsg}')">詢問包棟</button>
       </div>
     </div>`;
+
   } else {
-    const noLabel = bundleStatus==='sold'
-      ? '🌸 此日包棟已售出'
-      : bundleStatus==='singleBooked'
-        ? '🌸 此日已有單間訂房，無法包棟'
-        : '🌸 此日無法包棟';
-    const lineMsg = encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
+    const msgMap = {
+      sold:         { mascot:'🌸 渼寶說：這天包棟已售出，可以換個日期試試。',  badge:'🌸 此日包棟已售出',              bot:false },
+      singleBooked: { mascot:'🌸 渼寶說：這天已有單間訂房，無法包棟，請加入 LINE 詢問。', badge:'🌸 此日已有單間訂房，無法包棟', bot:true  },
+      unavailable:  { mascot:'🚫 渼寶說：此日期暫不開放訂房，請加入 LINE 詢問。', badge:'🚫 此日期暫不開放訂房',           bot:true  },
+    };
+    const m = msgMap[bundleStatus] || msgMap['unavailable'];
+    html+=`<div class="mascot-msg mm-no">${m.mascot}</div>`;
     html+=`<div class="bres bres-no">
       <div class="bres-top">
-        <div>
-          <div class="bres-name">🏡 禾渼會館包棟</div>
-          <span class="bres-badge bbadge-no">${noLabel}</span>
-        </div>
-        <div>
-          <div class="bres-price">${price.toLocaleString()}<span class="bres-unit"> 元</span></div>
-          <div class="bres-day">${dl}・每晚</div>
-        </div>
+        <div><div class="bres-name">🏡 禾渼會館包棟</div>
+        <span class="bres-badge bbadge-no">${m.badge}</span></div>
+        <div><div class="bres-price">${price.toLocaleString()}<span class="bres-unit"> 元</span></div>
+        <div class="bres-day">${dl}・每晚</div></div>
       </div>
-      ${bundleStatus==='singleBooked' ? `
-      <div class="bres-bot">
-        <div class="bres-info" style="color:var(--pk-deep);">此日已有單間訂房，無法整棟預訂</div>
+      ${m.bot ? `<div class="bres-bot">
+        <div class="bres-info" style="color:var(--pk-deep);">${m.badge}</div>
         <button class="btn-ask-or" onclick="openLine('${lineMsg}')">加入 LINE 詢問</button>
       </div>` : ''}
     </div>`;
