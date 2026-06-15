@@ -893,7 +893,11 @@ async function searchBundle(){
   if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
 
   const { bundleStatus } = data;
-  const t=dayType(dv), dl=dayLabel(t), dateLabel=fmtDate(dv);
+  const isLongHoliday = data.holidayMode && data.holidayMode !== '正常';
+
+const t = isLongHoliday ? 'long' : dayType(dv);
+const dl = dayLabel(t);
+const dateLabel = fmtDate(dv);
   const price=BUNDLE_P[t];
   const bundleOk = bundleStatus === 'available';
   const lineMsg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
