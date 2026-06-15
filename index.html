@@ -811,36 +811,41 @@ async function updateBadge(which){
   const t = dayType(val);
 
   try {
-    const data = await fetchAvail(val);
-    const isLongHoliday = data && data !== 'nodata' && data.holidayMode && data.holidayMode !== '正常';
+  const data = await fetchAvail(val);
+  const isLongHoliday =
+    data &&
+    data !== 'nodata' &&
+    data.holidayMode &&
+    data.holidayMode !== '正常';
 
-          if(isLongHoliday){
-  el.className='day-badge db-long';
-  el.textContent='🧡 連假';
-}
-    } else if(t==='hd'){
-      el.className='day-badge db-hd';
-      el.textContent='🟠 假日（週六）';
-    } else if(t==='pk'){
-      el.className='day-badge db-pk';
-      el.textContent='💙 旺日（週五）';
-    } else {
-      el.className='day-badge db-wd';
-      el.textContent='🌿 平日（週日～週四）';
-    }
-  } catch(e) {
-    if(t==='hd'){
-      el.className='day-badge db-hd';
-      el.textContent='🟠 假日（週六）';
-    } else if(t==='pk'){
-      el.className='day-badge db-pk';
-      el.textContent='💙 旺日（週五）';
-    } else {
-      el.className='day-badge db-wd';
-      el.textContent='🌿 平日（週日～週四）';
-    }
+  if(isLongHoliday){
+    el.className='day-badge db-long';
+    el.textContent='🧡 連假';
+  } else if(t==='hd'){
+    el.className='day-badge db-hd';
+    el.textContent='🟠 假日（週六）';
+  } else if(t==='pk'){
+    el.className='day-badge db-pk';
+    el.textContent='💙 旺日（週五）';
+  } else {
+    el.className='day-badge db-wd';
+    el.textContent='🌿 平日（週日～週四）';
+  }
+
+} catch(e) {
+
+  if(t==='hd'){
+    el.className='day-badge db-hd';
+    el.textContent='🟠 假日（週六）';
+  } else if(t==='pk'){
+    el.className='day-badge db-pk';
+    el.textContent='💙 旺日（週五）';
+  } else {
+    el.className='day-badge db-wd';
+    el.textContent='🌿 平日（週日～週四）';
   }
 }
+   
 function switchTab(tab){
   ['single','bundle'].forEach(t=>{
     document.getElementById('tab-'+t).classList.remove('tab-single','tab-bundle');
