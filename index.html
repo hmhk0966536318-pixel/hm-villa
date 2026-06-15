@@ -784,15 +784,14 @@ const ROOMS_DEF = [
   { id:'301', name:'301 四人房',    wd:4000, hd:5000 },
   { id:'302', name:'302 二大二小房', wd:2900, hd:3900 },
 ];
-const BUNDLE_P = { wd:23000, pk:25000, hd:30000 };
-
+const BUNDLE_P = { wd:23000, pk:25000, hd:30000, long:30000 };
 function dayType(ds){
   const d = new Date(ds+'T00:00:00').getDay();
   if(d===6) return 'hd';
   if(d===5) return 'pk';
   return 'wd';
 }
-function dayLabel(t){ return {wd:'平日',pk:'旺日',hd:'假日'}[t]; }
+function dayLabel(t){ return {wd:'平日',pk:'旺日',hd:'假日',long:'連假'}[t]; }
 function fmtDate(ds){
   const d=new Date(ds+'T00:00:00');
   return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
@@ -828,7 +827,7 @@ async function searchSingle(){
   if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
 
   const { singleMode, rooms } = data;
-  const t=dayType(dv), dl=dayLabel(t), dateLabel=fmtDate(dv);
+  const t = data.ctrlMode === '僅接包棟' ? 'long' : dayType(dv);
   const rv=document.getElementById('room-type').value;
   const list=rv==='all'?ROOMS_DEF:ROOMS_DEF.filter(r=>r.id===rv);
 
