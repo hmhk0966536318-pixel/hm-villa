@@ -827,7 +827,11 @@ async function searchSingle(){
   if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
 
   const { singleMode, rooms } = data;
-  const t = data.ctrlMode === '僅接包棟' ? 'long' : dayType(dv);
+  const isLongHoliday = data.holidayMode && data.holidayMode !== '正常';
+  const t = isLongHoliday ? 'long' : dayType(dv);
+  const dl = dayLabel(t);
+  const dateLabel = fmtDate(dv);
+
   const rv=document.getElementById('room-type').value;
   const list=rv==='all'?ROOMS_DEF:ROOMS_DEF.filter(r=>r.id===rv);
 
@@ -882,25 +886,20 @@ async function searchSingle(){
   area.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-async function searchBundle(){
-  const dv=document.getElementById('bundle-date').value;
-  const area=document.getElementById('bundle-results');
-  if(!dv){ area.innerHTML=warn(); return; }
-  area.innerHTML=loading();
+const { bundleStatus } = data;
 
-  const data = await fetchAvail(dv);
-  if(!data){ area.innerHTML=errMsg(); return; }
-  if(data === 'nodata'){ area.innerHTML=noDataMsg(); return; }
-
-  const { bundleStatus } = data;
-  const isLongHoliday = data.holidayMode && data.holidayMode !== '正常';
+const isLongHoliday = data.holidayMode && data.holidayMode !== '正常';
 
 const t = isLongHoliday ? 'long' : dayType(dv);
 const dl = dayLabel(t);
 const dateLabel = fmtDate(dv);
-  const price=BUNDLE_P[t];
-  const bundleOk = bundleStatus === 'available';
-  const lineMsg=encodeURIComponent('您好，我想詢問【'+dateLabel+'】禾渼會館包棟是否還有空房？');
+
+const price = BUNDLE_P[t];
+const bundleOk = bundleStatus === 'available';
+
+const lineMsg = encodeURIComponent(
+  '您好，我想詢問【' + dateLabel + '】禾渼會館包棟是否還有空房？'
+);
 
   let html=`<div class="results-hdr">${dateLabel}（${dl}）包棟查詢結果</div>`;
 
