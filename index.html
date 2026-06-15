@@ -1046,7 +1046,8 @@ function warn(){ return '<div class="card" style="text-align:center;color:var(--
 function loading(){ return '<div style="text-align:center;padding:28px;color:var(--gray);font-size:14px;">🔍 查詢中，請稍候…</div>'; }
 function errMsg(){ return '<div class="card" style="text-align:center;padding:20px;"><div style="font-size:22px;margin-bottom:8px;">🐻</div><div style="font-size:14px;color:var(--pk-deep);font-weight:600;margin-bottom:12px;">目前無法讀取空房表，請加入 LINE 詢問</div><a href="https://lin.ee/xHYWCtL" target="_blank" class="btn-line" style="font-size:13px;padding:9px 20px;">加入 LINE 詢問</a></div>'; }
 function noDataMsg(){ return '<div class="card" style="text-align:center;padding:20px;"><div style="font-size:22px;margin-bottom:8px;">🐻</div><div style="font-size:14px;color:var(--pk-deep);font-weight:600;margin-bottom:12px;">此日期尚未建立房況資料，請加入 LINE 詢問</div><a href="https://lin.ee/xHYWCtL" target="_blank" class="btn-line" style="font-size:13px;padding:9px 20px;">加入 LINE 詢問</a></div>'; }
-function openLine(msg){ window.open('https://line.me/R/msg/text/?'+msg,'_blank'); }
+function openLine(msg){window.open('https://lin.ee/xHYWCtL', '_blank');
+}
 
 
 function toYMD(dateObj){
