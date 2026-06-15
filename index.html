@@ -284,6 +284,7 @@ input[type="date"]:focus,select:focus{
 .db-wd{ background:var(--g-pale);  color:var(--g-deep);  border:1px solid var(--g-mid);}
 .db-pk{ background:var(--bl-pale); color:var(--bl-deep); border:1px solid var(--bl-mid);}   /* 旺日用藍 */
 .db-hd{ background:var(--or-pale); color:var(--or-text); border:1px solid var(--or-mid);}
+.db-long{ background:linear-gradient(135deg,#FFE2C3,#FFB26B);color:#8A4010;border:1px solid #E68A3F; font-weight:700;}
 .db-no{ background:var(--gray-lt); color:var(--gray);    border:1px solid var(--gray-mid);}
 
 /* ════════════════════════════════════
@@ -813,9 +814,10 @@ async function updateBadge(which){
     const data = await fetchAvail(val);
     const isLongHoliday = data && data !== 'nodata' && data.holidayMode && data.holidayMode !== '正常';
 
-    if(isLongHoliday){
-      el.className='day-badge db-hd';
-      el.textContent='🧡 連假';
+          if(isLongHoliday){
+  el.className='day-badge db-long';
+  el.textContent='🧡 連假';
+}
     } else if(t==='hd'){
       el.className='day-badge db-hd';
       el.textContent='🟠 假日（週六）';
