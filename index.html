@@ -682,10 +682,11 @@ function isClosedText(value) {
 async function fetchAvail(ds) {
   const dsYMD = normalizeDate(ds);
   try {
-    const [ctrlData, bundleData, singleData] = await Promise.all([
+    const [ctrlData, holidayData, bundleData, singleData] = await Promise.all([
       loadSheet('房況控制'),
-      loadSheet('包棟空房'),
-      loadSheet('單間空房'),
+loadSheet('假日設定'),
+loadSheet('包棟空房'),
+loadSheet('單間空房'),
     ]);
 
     const ctrlRow = findRow(ctrlData, dsYMD);
@@ -695,6 +696,25 @@ async function fetchAvail(ds) {
     if (!ctrlRow && !bundleRow && !singleRow) return 'nodata';
 
     const ctrlModeRaw = ctrlRow ? (ctrlRow['模式'] || '') : '正常';
+     let holidayMode = '';
+if (!ctrlRow && holidayData) {
+  const queryTime = new Date(dsYMD.replace(/\//g, '-') + 'T00:00:00').getTime();
+
+  const holidayRow = holidayData.find(r => {
+    const start = normalizeDate(r['開始日期']);
+    const end = normalizeDate(r['結束日期']);
+    if (!start || !end) return false;
+
+    const startTime = new Date(start.replace(/\//g, '-') + 'T00:00:00').getTime();
+    const endTime = new Date(end.replace(/\//g, '-') + 'T23:59:59').getTime();
+
+    return queryTime >= startTime && queryTime <= endTime;
+  });
+
+  if (holidayRow) {
+    holidayMode = cleanText(holidayRow['模式']);
+  }
+}
     const bundleStatusRaw = bundleRow ? (bundleRow['狀態'] || '') : '';
     const ctrlMode = cleanText(ctrlModeRaw) || '正常';
     const bundleStatusText = cleanText(bundleStatusRaw);
@@ -718,51 +738,145 @@ async function fetchAvail(ds) {
     }
 
     let singleMode = 'normal';
+     
+async function fetchAvail(ds) {
+  const dsYMD = normalizeDate(ds);
 
-    // 第一優先：房況控制
-    if (isBundleOnlyText(ctrlMode)) singleMode = 'bundleOnly';
-    else if (cleanText(ctrlMode) === '包棟已訂' || isSoldText(ctrlMode)) singleMode = 'bundleSold';
-    else if (isClosedText(ctrlMode)) singleMode = 'closed';
-    else {
-      // 第二優先：包棟空房狀態
-      if (isBundleOnlyText(bundleStatusText)) singleMode = 'bundleOnly';
-      else if (isSoldText(bundleStatusText)) singleMode = 'bundleSold';
-      else if (isClosedText(bundleStatusText)) singleMode = 'closed';
-      else singleMode = 'normal';
+  try {
+    const [ctrlData, holidayData, bundleData, singleData] = await Promise.all([
+      loadSheet('房況控制'),
+      loadSheet('假日設定'),
+      loadSheet('包棟空房'),
+      loadSheet('單間空房'),
+    ]);
+
+    const ctrlRow = findRow(ctrlData, dsYMD);
+    const bundleRow = findRow(bundleData, dsYMD);
+    const singleRow = findRow(singleData, dsYMD);
+
+    if (!ctrlRow && !bundleRow && !singleRow) return 'nodata';
+
+    const ctrlModeRaw = ctrlRow ? (ctrlRow['模式'] || '') : '正常';
+    const bundleStatusRaw = bundleRow ? (bundleRow['狀態'] || '') : '';
+
+    const ctrlMode = cleanText(ctrlModeRaw) || '正常';
+    const bundleStatusText = cleanText(bundleStatusRaw);
+
+    let holidayMode = '';
+
+    if (!ctrlRow && holidayData) {
+      const holidayRow = holidayData.find(r => {
+        const start = normalizeDate(r['開始日期']);
+        const end = normalizeDate(r['結束日期']);
+        if (!start || !end) return false;
+
+        return dsYMD >= start && dsYMD <= end;
+      });
+
+      if (holidayRow) {
+        holidayMode = cleanText(holidayRow['模式']);
+      }
     }
 
-    // 非正常模式，單間全部關閉
+    const effectiveMode = ctrlMode !== '正常'
+      ? ctrlMode
+      : (holidayMode || '正常');
+
+    const rooms = {
+      '201': 'full',
+      '202': 'full',
+      '203': 'full',
+      '301': 'full',
+      '302': 'full'
+    };
+
+    if (singleRow) {
+      ['201', '202', '203', '301', '302'].forEach(id => {
+        const val = cleanText(singleRow[id] || '');
+
+        if (isAvailableText(val)) {
+          rooms[id] = 'av';
+        } else if (isBundleOnlyText(val)) {
+          rooms[id] = 'bundleOnly';
+        } else {
+          rooms[id] = 'full';
+        }
+      });
+    }
+
+    let singleMode = 'normal';
+
+    if (isBundleOnlyText(effectiveMode)) {
+      singleMode = 'bundleOnly';
+    } else if (cleanText(effectiveMode) === '包棟已訂' || isSoldText(effectiveMode)) {
+      singleMode = 'bundleSold';
+    } else if (isClosedText(effectiveMode)) {
+      singleMode = 'closed';
+    } else {
+      if (isBundleOnlyText(bundleStatusText)) {
+        singleMode = 'bundleOnly';
+      } else if (isSoldText(bundleStatusText)) {
+        singleMode = 'bundleSold';
+      } else if (isClosedText(bundleStatusText)) {
+        singleMode = 'closed';
+      } else {
+        singleMode = 'normal';
+      }
+    }
+
     if (singleMode !== 'normal') {
       const mark = singleMode === 'bundleOnly' ? 'bundleOnly' : 'full';
-      Object.keys(rooms).forEach(id => rooms[id] = mark);
+      Object.keys(rooms).forEach(id => {
+        rooms[id] = mark;
+      });
     }
 
     let bundleStatus = 'unavailable';
 
-    // 包棟判斷
-    if (isBundleOnlyText(ctrlMode) || isBundleOnlyText(bundleStatusText)) {
+    if (isBundleOnlyText(effectiveMode) || isBundleOnlyText(bundleStatusText)) {
       bundleStatus = 'available';
-    } else if (cleanText(ctrlMode) === '包棟已訂' || isSoldText(ctrlMode) || isSoldText(bundleStatusText)) {
+    } else if (
+      cleanText(effectiveMode) === '包棟已訂' ||
+      isSoldText(effectiveMode) ||
+      isSoldText(bundleStatusText)
+    ) {
       bundleStatus = 'sold';
-    } else if (isClosedText(ctrlMode) || isClosedText(bundleStatusText)) {
+    } else if (isClosedText(effectiveMode) || isClosedText(bundleStatusText)) {
       bundleStatus = 'unavailable';
     } else {
-      // 正常模式：單間只要任一房不是可訂，就不能包棟
       const anyRoomNotAvailable = Object.values(rooms).some(v => v !== 'av');
-      if (anyRoomNotAvailable) bundleStatus = 'singleBooked';
-      else if (isAvailableText(bundleStatusText) || bundleStatusText === '') bundleStatus = 'available';
-      else bundleStatus = 'unavailable';
+
+      if (anyRoomNotAvailable) {
+        bundleStatus = 'singleBooked';
+      } else if (isAvailableText(bundleStatusText) || bundleStatusText === '') {
+        bundleStatus = 'available';
+      } else {
+        bundleStatus = 'unavailable';
+      }
     }
 
-    console.log('[結果] singleMode:', singleMode, 'rooms:', rooms, 'bundleStatus:', bundleStatus);
-    return { ctrlMode, singleMode, bundleStatus, rooms };
+    console.log('[結果]', {
+      dsYMD,
+      ctrlMode,
+      holidayMode,
+      effectiveMode,
+      singleMode,
+      rooms,
+      bundleStatus
+    });
 
-  } catch(e) {
+    return {
+      ctrlMode: effectiveMode,
+      singleMode,
+      bundleStatus,
+      rooms
+    };
+
+  } catch (e) {
     console.error('fetchAvail:', e);
     return null;
   }
 }
-
 /* ══ 房間與價格定義 ══ */
 const ROOMS_DEF = [
   { id:'201', name:'201 四人房',    wd:3500, hd:4500 },
