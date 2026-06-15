@@ -491,7 +491,7 @@ input[type="date"]:focus,select:focus{
         <span class="hb-note">含早餐・5 間全包</span>
       </div>
     </div>
-    <a class="btn-line" href="#">
+    <a class="btn-line" href="https://lin.ee/xHYWCtL" target="_blank">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.03 2 11c0 3.07 1.6 5.8 4.1 7.52L5 22l4.63-1.52C10.35 20.81 11.17 21 12 21c5.52 0 10-4.03 10-9S17.52 2 12 2z" fill="#fff"/></svg>
       加入 LINE 詢問
     </a>
@@ -951,8 +951,12 @@ async function searchBundle(){
 
 function warn(){ return '<div class="card" style="text-align:center;color:var(--or-text);font-size:14px;padding:18px;">⚠️ 請先選擇入住日期</div>'; }
 function loading(){ return '<div style="text-align:center;padding:28px;color:var(--gray);font-size:14px;">🔍 查詢中，請稍候…</div>'; }
-function errMsg(){ return '<div class="card" style="text-align:center;padding:20px;"><div style="font-size:22px;margin-bottom:8px;">🐻</div><div style="font-size:14px;color:var(--pk-deep);font-weight:600;margin-bottom:12px;">目前無法讀取空房表，請加入 LINE 詢問</div><a href="#" class="btn-line" style="font-size:13px;padding:9px 20px;">加入 LINE 詢問</a></div>'; }
-function noDataMsg(){ return '<div class="card" style="text-align:center;padding:20px;"><div style="font-size:22px;margin-bottom:8px;">🐻</div><div style="font-size:14px;color:var(--pk-deep);font-weight:600;margin-bottom:12px;">此日期尚未建立房況資料，請加入 LINE 詢問</div><a href="#" class="btn-line" style="font-size:13px;padding:9px 20px;">加入 LINE 詢問</a></div>'; }
+function errMsg(){
+  return '...<a href="https://lin.ee/xHYWCtL" target="_blank" class="btn-line"...>加入 LINE 詢問</a>...';
+}
+function noDataMsg(){
+  return '...<a href="https://lin.ee/xHYWCtL" target="_blank" class="btn-line"...>加入 LINE 詢問</a>...';
+}
 function openLine(msg){ window.open('https://line.me/R/msg/text/?'+msg,'_blank'); }
 
 const t0=new Date();
