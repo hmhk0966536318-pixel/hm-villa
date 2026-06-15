@@ -798,14 +798,26 @@ function fmtDate(ds){
 }
 
 function updateBadge(which){
-  const val = document.getElementById(which+'-date').value;
-  const el  = document.getElementById(which+'-badge');
-  if(!val){ el.className='day-badge db-no'; el.textContent='請選擇日期'; return; }
-  const t = dayType(val);
-  if(t==='hd'){ el.className='day-badge db-hd'; el.textContent='🟠 假日（週六）'; }
-  else if(t==='pk'){ el.className='day-badge db-pk'; el.textContent='💙 旺日（週五）'; }
-  else { el.className='day-badge db-wd'; el.textContent='🌿 平日（週日～週四）'; }
-}
+const t = dayType(val);
+
+// 如果是假日設定中的連假，顯示連假
+fetchAvail(val).then(data => {
+  const holiday = data && data.holidayMode && data.holidayMode !== '正常';
+
+  if (holiday) {
+    el.className='day-badge db-hd';
+    el.textContent='🧡 連假';
+  } else if (t==='hd') {
+    el.className='day-badge db-hd';
+    el.textContent='🟠 假日（週六）';
+  } else if (t==='pk') {
+    el.className='day-badge db-pk';
+    el.textContent='💙 旺日（週五）';
+  } else {
+    el.className='day-badge db-wd';
+    el.textContent='🌿 平日（週日～週四）';
+  }
+});
 
 function switchTab(tab){
   ['single','bundle'].forEach(t=>{
